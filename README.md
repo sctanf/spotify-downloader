@@ -1,3 +1,5 @@
+Modified to convert donloaded songs to opus 80kbps instead of mp3 128kbps (better audio, smaller filesize).
+
 ![logo](static/logo.png)
 
 # spotDL
