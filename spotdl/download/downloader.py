@@ -10,8 +10,9 @@ from pathlib import Path
 
 from pytube import YouTube
 
-from mutagen.easyid3 import EasyID3, ID3
-from mutagen.id3 import APIC as AlbumCover
+import base64
+from mutagen.oggopus import OggOpus
+from mutagen.flac import Picture
 
 from urllib.request import urlopen
 
@@ -154,7 +155,7 @@ class DownloadManager():
         convertedFileName = convertedFileName.replace(
             '"', "'").replace(': ', ' - ')
 
-        convertedFilePath = Path(".", f"{convertedFileName}.mp3")
+        convertedFilePath = Path(".", f"{convertedFileName}.opus")
 
         # if a song is already downloaded skip it
         if convertedFilePath.is_file():
@@ -192,31 +193,9 @@ class DownloadManager():
 
         downloadedFilePath = Path(downloadedFilePathString)
 
-        # convert downloaded file to MP3 with normalization
+        # convert downloaded file
 
-        #! -af loudnorm=I=-7:LRA applies EBR 128 loudness normalization algorithm with
-        #! intergrated loudness target (I) set to -17, using values lower than -15
-        #! causes 'pumping' i.e. rhythmic variation in loudness that should not
-        #! exist -loud parts exaggerate, soft parts left alone.
-        #!
-        #! dynaudnorm applies dynamic non-linear RMS based normalization, this is what
-        #! actually normalized the audio. The loudnorm filter just makes the apparent
-        #! loudness constant
-        #!
-        #! apad=pad_dur=2 adds 2 seconds of silence toward the end of the track, this is
-        #! done because the loudnorm filter clips/cuts/deletes the last 1-2 seconds on
-        #! occasion especially if the song is EDM-like, so we add a few extra seconds to
-        #! combat that.
-        #!
-        #! -acodec libmp3lame sets the encoded to 'libmp3lame' which is far better
-        #! than the default 'mp3_mf', '-abr true' automatically determines and passes the
-        #! audio encoding bitrate to the filters and encoder. This ensures that the
-        #! sampled length of songs matches the actual length (i.e. a 5 min song won't display
-        #! as 47 seconds long in your music player, yeah that was an issue earlier.)
-
-        command = 'ffmpeg -v quiet -y -i "%s" -acodec libmp3lame -abr true ' \
-            f'-b:a {trackAudioStream.bitrate} ' \
-                  '-af "apad=pad_dur=2, dynaudnorm, loudnorm=I=-17" "%s"'
+        command = 'ffmpeg -v quiet -y -i "%s" -acodec libopus -b:a 80K -vbr on -compression_level 10 "%s"'
 
         #! bash/ffmpeg on Unix systems need to have excape char (\) for special characters: \$
         #! alternatively the quotes could be reversed (single <-> double) in the command then
@@ -245,12 +224,10 @@ class DownloadManager():
             self.displayManager.notify_conversion_completion()
 
         # embed song details
-        #! we save tags as both ID3 v2.3 and v2.4
 
-        #! The simple ID3 tags
-        audioFile = EasyID3(convertedFilePath)
+        audioFile = OggOpus(convertedFilePath)
 
-        #! Get rid of all existing ID3 tags (if any exist)
+        #! Get rid of all existing tags (if any exist)
         audioFile.delete()
 
         #! song name
@@ -260,13 +237,8 @@ class DownloadManager():
         #! track number
         audioFile['tracknumber'] = str(songObj.get_track_number())
 
-        #! genres (pretty pointless if you ask me)
-        #! we only apply the first available genre as ID3 v2.3 doesn't support multiple
-        #! genres and ~80% of the world PC's run Windows - an OS with no ID3 v2.4 support
-        genres = songObj.get_genres()
-
-        if len(genres) > 0:
-            audioFile['genre'] = genres[0]
+        #! genres
+        audioFile['genre'] = songObj.get_genres()
 
         #! all involved artists
         audioFile['artist'] = songObj.get_contributing_artists()
@@ -281,24 +253,26 @@ class DownloadManager():
         audioFile['date'] = songObj.get_album_release()
         audioFile['originaldate'] = songObj.get_album_release()
 
-        #! save as both ID3 v2.3 & v2.4 as v2.3 isn't fully features and
-        #! windows doesn't support v2.4 until later versions of Win10
-        audioFile.save(v2_version=3)
+        audioFile.save()
 
         #! setting the album art
-        audioFile = ID3(convertedFilePath)
+        audioFile = OggOpus(convertedFilePath)
 
         rawAlbumArt = urlopen(songObj.get_album_cover_url()).read()
 
-        audioFile['APIC'] = AlbumCover(
-            encoding=3,
-            mime='image/jpeg',
-            type=3,
-            desc='Cover',
-            data=rawAlbumArt
-        )
+        picture = Picture()
+        picture.data = rawAlbumArt
+        picture.type = 3
+        picture.desc = u"Cover"
+        picture.mime = u"image/jpeg"
 
-        audioFile.save(v2_version=3)
+        picture_data = picture.write()
+        encoded_data = base64.b64encode(picture_data)
+        vcomment_value = encoded_data.decode("ascii")
+
+        audioFile["metadata_block_picture"] = [vcomment_value]
+
+        audioFile.save()
 
         # Do the necessary cleanup
         if self.displayManager:
