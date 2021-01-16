@@ -1,6 +1,3 @@
-Modified to convert donloaded songs to opus 80kbps instead of mp3 128kbps (better audio, smaller filesize).
-- To install this fork: `pip install https://github.com/sctanf/spotify-downloader/archive/master.zip`
-
 ![logo](static/logo.png)
 
 # spotDL
